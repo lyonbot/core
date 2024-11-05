@@ -6,8 +6,8 @@ import { Errno, ErrnoError } from '../error.js';
 import type { File } from '../file.js';
 import type { FileSystem } from '../filesystem.js';
 import { normalizePath } from '../utils.js';
-import { resolve, type AbsolutePath } from './path.js';
 import { size_max } from './constants.js';
+import { resolve, type AbsolutePath } from './path.js';
 
 // descriptors
 export const fdMap: Map<number, File> = new Map();
@@ -84,26 +84,30 @@ export function resolveMount(path: string): { fs: FileSystem; path: string; moun
 }
 
 /**
- * Reverse maps the paths in text from the mounted FileSystem to the global path
+ * Fix paths in errors
  * @hidden
  */
-export function fixPaths(text: string, paths: Record<string, string>): string {
-	for (const [from, to] of Object.entries(paths)) {
-		text = text?.replaceAll(from, to);
+export function fixError(e: ErrnoError, mountPoint: string | Record<string, string>, ...paths: string[]): ErrnoError {
+	if (typeof mountPoint == 'object') {
+		return Object.entries(mountPoint).reduce((error: ErrnoError, [resolved, path]) => fixError(error, path.slice(0, resolved.length), resolved), e);
 	}
-	return text;
+	for (const path of paths) {
+		if (typeof e.stack == 'string') {
+			e.stack = e.stack.replace(path, mountPoint + path);
+		}
+		e.message = e.message.replace(path, mountPoint + path);
+		e.path = e.path?.replace(path, mountPoint + path);
+	}
+	return e;
 }
 
 /**
- * Fix paths in error stacks
  * @hidden
  */
-export function fixError<E extends ErrnoError>(e: E, paths: Record<string, string>): E {
-	if (typeof e.stack == 'string') {
-		e.stack = fixPaths(e.stack, paths);
-	}
-	e.message = fixPaths(e.message, paths);
-	return e;
+export function fixAndThrow(mountPoint: string, ...paths: string[]) {
+	return function (e: ErrnoError): never {
+		throw fixError(e, mountPoint, ...paths);
+	};
 }
 
 /**

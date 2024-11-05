@@ -38,27 +38,27 @@ suite('Directories', () => {
 	});
 
 	test('mkdir, recursive', async () => {
-		assert((await fs.promises.mkdir('/recursiveP/A/B', { recursive: true, mode: 0o755 })) == '/recursiveP');
-		assert((await fs.promises.mkdir('/recursiveP/A/B/C/D', { recursive: true, mode: 0o777 })) == '/recursiveP/A/B/C');
-		assert((await fs.promises.mkdir('/recursiveP/A/B/C/D', { recursive: true, mode: 0o700 })) == undefined);
+		assert.strictEqual(await fs.promises.mkdir('/recursiveP/A/B', { recursive: true, mode: 0o755 }), '/recursiveP');
+		assert.strictEqual(await fs.promises.mkdir('/recursiveP/A/B/C/D', { recursive: true, mode: 0o777 }), '/recursiveP/A/B/C');
+		assert.strictEqual(await fs.promises.mkdir('/recursiveP/A/B/C/D', { recursive: true, mode: 0o700 }), undefined);
 
-		assert((await fs.promises.stat('/recursiveP')).mode == (fs.constants.S_IFDIR | 0o755));
-		assert((await fs.promises.stat('/recursiveP/A')).mode == (fs.constants.S_IFDIR | 0o755));
-		assert((await fs.promises.stat('/recursiveP/A/B')).mode == (fs.constants.S_IFDIR | 0o755));
-		assert((await fs.promises.stat('/recursiveP/A/B/C')).mode == (fs.constants.S_IFDIR | 0o777));
-		assert((await fs.promises.stat('/recursiveP/A/B/C/D')).mode == (fs.constants.S_IFDIR | 0o777));
+		assert.strictEqual((await fs.promises.stat('/recursiveP')).mode, fs.constants.S_IFDIR | 0o755);
+		assert.strictEqual((await fs.promises.stat('/recursiveP/A')).mode, fs.constants.S_IFDIR | 0o755);
+		assert.strictEqual((await fs.promises.stat('/recursiveP/A/B')).mode, fs.constants.S_IFDIR | 0o755);
+		assert.strictEqual((await fs.promises.stat('/recursiveP/A/B/C')).mode, fs.constants.S_IFDIR | 0o777);
+		assert.strictEqual((await fs.promises.stat('/recursiveP/A/B/C/D')).mode, fs.constants.S_IFDIR | 0o777);
 	});
 
 	test('mkdirSync, recursive', () => {
-		assert(fs.mkdirSync('/recursiveS/A/B', { recursive: true, mode: 0o755 }) === '/recursiveS');
-		assert(fs.mkdirSync('/recursiveS/A/B/C/D', { recursive: true, mode: 0o777 }) === '/recursiveS/A/B/C');
-		assert(fs.mkdirSync('/recursiveS/A/B/C/D', { recursive: true, mode: 0o700 }) === undefined);
+		assert.strictEqual(fs.mkdirSync('/recursiveS/A/B', { recursive: true, mode: 0o755 }), '/recursiveS');
+		assert.strictEqual(fs.mkdirSync('/recursiveS/A/B/C/D', { recursive: true, mode: 0o777 }), '/recursiveS/A/B/C');
+		assert.strictEqual(fs.mkdirSync('/recursiveS/A/B/C/D', { recursive: true, mode: 0o700 }), undefined);
 
-		assert(fs.statSync('/recursiveS').mode == (fs.constants.S_IFDIR | 0o755));
-		assert(fs.statSync('/recursiveS/A').mode == (fs.constants.S_IFDIR | 0o755));
-		assert(fs.statSync('/recursiveS/A/B').mode == (fs.constants.S_IFDIR | 0o755));
-		assert(fs.statSync('/recursiveS/A/B/C').mode == (fs.constants.S_IFDIR | 0o777));
-		assert(fs.statSync('/recursiveS/A/B/C/D').mode == (fs.constants.S_IFDIR | 0o777));
+		assert.strictEqual(fs.statSync('/recursiveS').mode, fs.constants.S_IFDIR | 0o755);
+		assert.strictEqual(fs.statSync('/recursiveS/A').mode, fs.constants.S_IFDIR | 0o755);
+		assert.strictEqual(fs.statSync('/recursiveS/A/B').mode, fs.constants.S_IFDIR | 0o755);
+		assert.strictEqual(fs.statSync('/recursiveS/A/B/C').mode, fs.constants.S_IFDIR | 0o777);
+		assert.strictEqual(fs.statSync('/recursiveS/A/B/C/D').mode, fs.constants.S_IFDIR | 0o777);
 	});
 
 	test('readdirSync without permission', () => {

@@ -144,6 +144,7 @@ export abstract class FileSystem {
 
 	/**
 	 * Test whether or not `path` exists.
+	 * @deprecated Use `stat`
 	 */
 	public async exists(path: string): Promise<boolean> {
 		try {
@@ -156,6 +157,7 @@ export abstract class FileSystem {
 
 	/**
 	 * Test whether or not `path` exists.
+	 * @deprecated Use `statSync`
 	 */
 	public existsSync(path: string): boolean {
 		try {

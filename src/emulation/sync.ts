@@ -33,7 +33,7 @@ export function renameSync(oldPath: fs.PathLike, newPath: fs.PathLike): void {
 		unlinkSync(oldPath);
 		emitChange('rename', oldPath.toString());
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [oldMount.path]: oldPath, [newMount.path]: newPath });
+		throw fixError(fixError(e as ErrnoError, oldMount.mountPoint, oldMount.path), newMount.mountPoint, newMount.path);
 	}
 }
 renameSync satisfies typeof fs.renameSync;
@@ -60,7 +60,7 @@ export function statSync(path: fs.PathLike, options?: { bigint?: boolean }): Sta
 export function statSync(path: fs.PathLike, options: { bigint: true }): BigIntStats;
 export function statSync(path: fs.PathLike, options?: fs.StatOptions): Stats | BigIntStats {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(realpathSync(path));
+	const { fs, path: resolved, mountPoint } = resolveMount(realpathSync(path));
 	try {
 		const stats = fs.statSync(resolved);
 		if (config.checkAccess && !stats.hasAccess(constants.R_OK)) {
@@ -68,7 +68,7 @@ export function statSync(path: fs.PathLike, options?: fs.StatOptions): Stats | B
 		}
 		return options?.bigint ? new BigIntStats(stats) : stats;
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 statSync satisfies typeof fs.statSync;
@@ -82,12 +82,12 @@ export function lstatSync(path: fs.PathLike, options?: { bigint?: boolean }): St
 export function lstatSync(path: fs.PathLike, options: { bigint: true }): BigIntStats;
 export function lstatSync(path: fs.PathLike, options?: fs.StatOptions): Stats | BigIntStats {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(path);
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 	try {
 		const stats = fs.statSync(resolved);
 		return options?.bigint ? new BigIntStats(stats) : stats;
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 lstatSync satisfies typeof fs.lstatSync;
@@ -104,7 +104,7 @@ truncateSync satisfies typeof fs.truncateSync;
 
 export function unlinkSync(path: fs.PathLike): void {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(path);
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 	try {
 		if (config.checkAccess && !(cache.getStatsSync(path) || fs.statSync(resolved)).hasAccess(constants.W_OK)) {
 			throw ErrnoError.With('EACCES', resolved, 'unlink');
@@ -112,7 +112,7 @@ export function unlinkSync(path: fs.PathLike): void {
 		fs.unlinkSync(resolved);
 		emitChange('rename', path.toString());
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 unlinkSync satisfies typeof fs.unlinkSync;
@@ -384,7 +384,7 @@ futimesSync satisfies typeof fs.futimesSync;
 
 export function rmdirSync(path: fs.PathLike): void {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(realpathSync(path));
+	const { fs, path: resolved, mountPoint } = resolveMount(realpathSync(path));
 	try {
 		const stats = cache.getStatsSync(path) || fs.statSync(resolved);
 		if (!stats.isDirectory()) {
@@ -396,7 +396,7 @@ export function rmdirSync(path: fs.PathLike): void {
 		fs.rmdirSync(resolved);
 		emitChange('rename', path.toString());
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 rmdirSync satisfies typeof fs.rmdirSync;
@@ -456,7 +456,7 @@ export function readdirSync(
 ): string[] | Dirent[] | Buffer[] {
 	options = typeof options === 'object' ? options : { encoding: options };
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(realpathSync(path));
+	const { fs, path: resolved, mountPoint } = resolveMount(realpathSync(path));
 	let entries: string[];
 	try {
 		const stats = cache.getStatsSync(path) || fs.statSync(resolved);
@@ -469,7 +469,7 @@ export function readdirSync(
 		}
 		entries = fs.readdirSync(resolved);
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 
 	// Iterate over entries and handle recursive case if needed
@@ -636,7 +636,7 @@ export function realpathSync(path: fs.PathLike, options?: fs.EncodingOption | fs
 		if ((e as ErrnoError).code == 'ENOENT') {
 			return path;
 		}
-		throw fixError(e as ErrnoError, { [resolvedPath]: lpath });
+		throw fixError(e as ErrnoError, mountPoint, resolvedPath);
 	}
 }
 realpathSync satisfies Omit<typeof fs.realpathSync, 'native'>;

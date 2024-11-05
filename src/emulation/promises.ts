@@ -17,7 +17,7 @@ import { config } from './config.js';
 import * as constants from './constants.js';
 import { Dir, Dirent } from './dir.js';
 import { dirname, join, parse } from './path.js';
-import { _statfs, fd2file, fdMap, file2fd, fixError, resolveMount, type InternalOptions, type ReaddirOptions } from './shared.js';
+import { _statfs, fd2file, fdMap, file2fd, fixAndThrow, fixError, resolveMount, type InternalOptions, type ReaddirOptions } from './shared.js';
 import { ReadStream, WriteStream } from './streams.js';
 import { FSWatcher, emitChange } from './watchers.js';
 export * as constants from './constants.js';
@@ -391,18 +391,15 @@ export async function rename(oldPath: fs.PathLike, newPath: fs.PathLike): Promis
 	if (config.checkAccess && !(await stat(dirname(oldPath))).hasAccess(constants.W_OK)) {
 		throw ErrnoError.With('EACCES', oldPath, 'rename');
 	}
-	try {
-		if (src.mountPoint == dst.mountPoint) {
-			await src.fs.rename(src.path, dst.path);
-			emitChange('rename', oldPath.toString());
-			return;
-		}
-		await writeFile(newPath, await readFile(oldPath));
-		await unlink(oldPath);
+
+	if (src.mountPoint == dst.mountPoint) {
+		await src.fs.rename(src.path, dst.path).catch(fixAndThrow(src.mountPoint, src.path, dst.path));
 		emitChange('rename', oldPath.toString());
-	} catch (e) {
-		throw fixError(e as ErrnoError, { [src.path]: oldPath, [dst.path]: newPath });
+		return;
 	}
+	await writeFile(newPath, await readFile(oldPath));
+	await unlink(oldPath);
+	emitChange('rename', oldPath.toString());
 }
 rename satisfies typeof promises.rename;
 
@@ -410,16 +407,15 @@ rename satisfies typeof promises.rename;
  * Test whether or not `path` exists by checking with the file system.
  */
 export async function exists(path: fs.PathLike): Promise<boolean> {
-	try {
-		const { fs, path: resolved } = resolveMount(await realpath(path));
-		return await fs.exists(resolved);
-	} catch (e) {
-		if (e instanceof ErrnoError && e.code == 'ENOENT') {
-			return false;
-		}
+	const { fs, path: resolved } = resolveMount(await realpath(path));
 
-		throw e;
-	}
+	return await fs
+		.stat(resolved)
+		.then(() => true)
+		.catch((error: ErrnoError) => {
+			if (error.code == 'ENOENT') return false;
+			throw error;
+		});
 }
 
 export async function stat(path: fs.PathLike, options: fs.BigIntOptions): Promise<BigIntStats>;
@@ -427,7 +423,7 @@ export async function stat(path: fs.PathLike, options?: { bigint?: false }): Pro
 export async function stat(path: fs.PathLike, options?: fs.StatOptions): Promise<Stats | BigIntStats>;
 export async function stat(path: fs.PathLike, options?: fs.StatOptions): Promise<Stats | BigIntStats> {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(await realpath(path));
+	const { fs, path: resolved, mountPoint } = resolveMount(await realpath(path));
 	try {
 		const stats = await fs.stat(resolved);
 		if (config.checkAccess && !stats.hasAccess(constants.R_OK)) {
@@ -435,7 +431,7 @@ export async function stat(path: fs.PathLike, options?: fs.StatOptions): Promise
 		}
 		return options?.bigint ? new BigIntStats(stats) : stats;
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 stat satisfies typeof promises.stat;
@@ -449,12 +445,12 @@ export async function lstat(path: fs.PathLike, options?: { bigint?: boolean }): 
 export async function lstat(path: fs.PathLike, options: { bigint: true }): Promise<BigIntStats>;
 export async function lstat(path: fs.PathLike, options?: fs.StatOptions): Promise<Stats | BigIntStats> {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(path);
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 	try {
 		const stats = await fs.stat(resolved);
 		return options?.bigint ? new BigIntStats(stats) : stats;
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 lstat satisfies typeof promises.lstat;
@@ -469,7 +465,7 @@ truncate satisfies typeof promises.truncate;
 
 export async function unlink(path: fs.PathLike): Promise<void> {
 	path = normalizePath(path);
-	const { fs, path: resolved } = resolveMount(path);
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 	try {
 		if (config.checkAccess && !(await (cache.getStats(path) || fs.stat(resolved)))!.hasAccess(constants.W_OK)) {
 			throw ErrnoError.With('EACCES', resolved, 'unlink');
@@ -477,7 +473,7 @@ export async function unlink(path: fs.PathLike): Promise<void> {
 		await fs.unlink(resolved);
 		emitChange('rename', path.toString());
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 unlink satisfies typeof promises.unlink;
@@ -621,7 +617,7 @@ appendFile satisfies typeof promises.appendFile;
 
 export async function rmdir(path: fs.PathLike): Promise<void> {
 	path = await realpath(path);
-	const { fs, path: resolved } = resolveMount(path);
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 	try {
 		const stats = await (cache.getStats(path) || fs.stat(resolved));
 		if (!stats) {
@@ -636,7 +632,7 @@ export async function rmdir(path: fs.PathLike): Promise<void> {
 		await fs.rmdir(resolved);
 		emitChange('rename', path.toString());
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [resolved]: path });
+		throw fixError(e as ErrnoError, mountPoint, resolved);
 	}
 }
 rmdir satisfies typeof promises.rmdir;
@@ -655,35 +651,39 @@ export async function mkdir(path: fs.PathLike, options?: fs.Mode | fs.MakeDirect
 	const mode = normalizeMode(options?.mode, 0o777);
 
 	path = await realpath(path);
-	const { fs, path: resolved } = resolveMount(path);
-	const errorPaths: Record<string, string> = { [resolved]: path };
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 
-	try {
-		if (!options?.recursive) {
-			if (config.checkAccess && !(await fs.stat(dirname(resolved))).hasAccess(constants.W_OK)) {
-				throw ErrnoError.With('EACCES', dirname(resolved), 'mkdir');
-			}
-			await fs.mkdir(resolved, mode);
-			emitChange('rename', path.toString());
-			return;
-		}
+	if (!options?.recursive) {
+		const stats = await fs.stat(dirname(resolved)).catch(fixAndThrow(mountPoint, resolved));
 
-		const dirs: string[] = [];
-		for (let dir = resolved, origDir = path; !(await fs.exists(dir)); dir = dirname(dir), origDir = dirname(origDir)) {
-			dirs.unshift(dir);
-			errorPaths[dir] = origDir;
+		if (config.checkAccess && !stats.hasAccess(constants.W_OK)) {
+			throw ErrnoError.With('EACCES', dirname(path), 'mkdir');
 		}
-		for (const dir of dirs) {
-			if (config.checkAccess && !(await fs.stat(dirname(dir))).hasAccess(constants.W_OK)) {
-				throw ErrnoError.With('EACCES', dirname(dir), 'mkdir');
-			}
-			await fs.mkdir(dir, mode);
-			emitChange('rename', dir);
-		}
-		return dirs[0];
-	} catch (e) {
-		throw fixError(e as ErrnoError, errorPaths);
+		await fs.mkdir(resolved, mode);
+		emitChange('rename', path.toString());
+		return;
 	}
+
+	let current = '',
+		lastStats: Stats | undefined,
+		first;
+	for (const part of resolved.split('/')) {
+		current = normalizePath(current + '/' + part);
+		lastStats = await fs.stat(current).catch(async (error: ErrnoError) => {
+			if (error.code != 'ENOENT') throw fixError(error, mountPoint, current);
+
+			if (config.checkAccess && !lastStats?.hasAccess(constants.W_OK)) {
+				throw ErrnoError.With('EACCES', dirname(current), 'mkdir');
+			}
+
+			await fs.mkdir(current, mode);
+			first ??= current;
+			emitChange('rename', current);
+			return await fs.stat(current);
+		});
+	}
+
+	return first;
 }
 mkdir satisfies typeof promises.mkdir;
 
@@ -712,11 +712,11 @@ export async function readdir(
 	options = typeof options === 'object' ? options : { encoding: options };
 	path = await realpath(path);
 
-	const handleError = (e: ErrnoError) => {
-		throw fixError(e, { [resolved]: path });
-	};
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 
-	const { fs, path: resolved } = resolveMount(path);
+	const handleError = (e: ErrnoError) => {
+		throw fixError(e, mountPoint, resolved);
+	};
 
 	const _stats = cache.getStats(path) || fs.stat(resolved).catch(handleError);
 	cache.setStats(path, _stats);
@@ -779,7 +779,7 @@ export async function link(targetPath: fs.PathLike, linkPath: fs.PathLike): Prom
 	targetPath = normalizePath(targetPath);
 	linkPath = normalizePath(linkPath);
 
-	const { fs, path } = resolveMount(targetPath);
+	const { fs, path, mountPoint } = resolveMount(targetPath);
 	const link = resolveMount(linkPath);
 
 	if (fs != link.fs) {
@@ -800,7 +800,7 @@ export async function link(targetPath: fs.PathLike, linkPath: fs.PathLike): Prom
 		}
 		return await fs.link(path, link.path);
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [link.path]: linkPath, [path]: targetPath });
+		throw fixError(e as ErrnoError, mountPoint, path);
 	}
 }
 link satisfies typeof promises.link;
@@ -906,7 +906,7 @@ export async function realpath(path: fs.PathLike, options?: fs.EncodingOption | 
 		if ((e as ErrnoError).code == 'ENOENT') {
 			return path;
 		}
-		throw fixError(e as ErrnoError, { [resolvedPath]: lpath });
+		throw fixError(e as ErrnoError, mountPoint, resolvedPath);
 	}
 }
 realpath satisfies typeof promises.realpath;
