@@ -91,6 +91,7 @@ export function fixError(e: ErrnoError, mountPoint: string | Record<string, stri
 	if (typeof mountPoint == 'object') {
 		return Object.entries(mountPoint).reduce((error: ErrnoError, [resolved, path]) => fixError(error, path.slice(0, resolved.length), resolved), e);
 	}
+	if (mountPoint == '/') mountPoint = '';
 	for (const path of paths) {
 		if (typeof e.stack == 'string') {
 			e.stack = e.stack.replace(path, mountPoint + path);

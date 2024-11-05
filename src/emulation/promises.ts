@@ -613,8 +613,6 @@ export async function appendFile(
 }
 appendFile satisfies typeof promises.appendFile;
 
-// DIRECTORY-ONLY METHODS
-
 export async function rmdir(path: fs.PathLike): Promise<void> {
 	path = await realpath(path);
 	const { fs, path: resolved, mountPoint } = resolveMount(path);

@@ -74,9 +74,6 @@ export class UnmutexedOverlayFS extends FileSystem {
 
 	public async sync(path: string, data: Uint8Array, stats: Readonly<Stats>): Promise<void> {
 		await this.copyForWrite(path);
-		if (!(await this.writable.exists(path))) {
-			await this.writable.createFile(path, 'w', 0o644);
-		}
 		await this.writable.sync(path, data, stats);
 	}
 
@@ -459,9 +456,7 @@ export class UnmutexedOverlayFS extends FileSystem {
 	}
 
 	/**
-	 * Helper function:
-	 * - Ensures p is on writable before proceeding. Throws an error if it doesn't exist.
-	 * - Calls f to perform operation on writable.
+	 * Ensures path is on writable before proceeding. Throws an error if it doesn't exist.
 	 */
 	private copyForWriteSync(path: string): void {
 		if (!this.existsSync(path)) {
@@ -475,6 +470,9 @@ export class UnmutexedOverlayFS extends FileSystem {
 		}
 	}
 
+	/**
+	 * Ensures path is on writable before proceeding. Throws an error if it doesn't exist.
+	 */
 	private async copyForWrite(path: string): Promise<void> {
 		if (!(await this.exists(path))) {
 			throw ErrnoError.With('ENOENT', path, 'copyForWrite');

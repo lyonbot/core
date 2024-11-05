@@ -143,8 +143,8 @@ export abstract class FileSystem {
 	public abstract readdirSync(path: string): string[];
 
 	/**
-	 * Test whether or not `path` exists.
-	 * @deprecated Use `stat`
+	 * Test whether or not `path` exists. This involves a stat call. Try to use `stat` if possible!
+	 * @see stat
 	 */
 	public async exists(path: string): Promise<boolean> {
 		try {
@@ -156,8 +156,9 @@ export abstract class FileSystem {
 	}
 
 	/**
-	 * Test whether or not `path` exists.
-	 * @deprecated Use `statSync`
+	 * Test whether or not `path` exists. This involves a stat call. Try to use `statSync` if possible!
+	 * @see statSync
+	 *
 	 */
 	public existsSync(path: string): boolean {
 		try {

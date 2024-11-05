@@ -412,33 +412,42 @@ export function mkdirSync(path: fs.PathLike, options?: fs.Mode | fs.MakeDirector
 	const mode = normalizeMode(options?.mode, 0o777);
 
 	path = realpathSync(path);
-	const { fs, path: resolved } = resolveMount(path);
-	const errorPaths: Record<string, string> = { [resolved]: path };
+	const { fs, path: resolved, mountPoint } = resolveMount(path);
 
-	try {
-		if (!options?.recursive) {
+	if (!options?.recursive) {
+		try {
 			if (config.checkAccess && !fs.statSync(dirname(resolved)).hasAccess(constants.W_OK)) {
 				throw ErrnoError.With('EACCES', dirname(resolved), 'mkdir');
 			}
 			return fs.mkdirSync(resolved, mode);
+		} catch (e) {
+			throw fixError(e as ErrnoError, mountPoint, resolved);
 		}
-
-		const dirs: string[] = [];
-		for (let dir = resolved, original = path; !fs.existsSync(dir); dir = dirname(dir), original = dirname(original)) {
-			dirs.unshift(dir);
-			errorPaths[dir] = original;
-		}
-		for (const dir of dirs) {
-			if (config.checkAccess && !fs.statSync(dirname(dir)).hasAccess(constants.W_OK)) {
-				throw ErrnoError.With('EACCES', dirname(dir), 'mkdir');
-			}
-			fs.mkdirSync(dir, mode);
-			emitChange('rename', dir);
-		}
-		return dirs[0];
-	} catch (e) {
-		throw fixError(e as ErrnoError, errorPaths);
 	}
+
+	let current = '',
+		lastStats: Stats | undefined,
+		first;
+	for (const part of resolved.split('/')) {
+		current = normalizePath(current + '/' + part);
+		try {
+			lastStats = fs.statSync(current);
+		} catch (_error: any) {
+			const error = _error as ErrnoError;
+			if (error.code != 'ENOENT') throw fixError(error, mountPoint, current);
+
+			if (config.checkAccess && !lastStats?.hasAccess(constants.W_OK)) {
+				throw ErrnoError.With('EACCES', dirname(current), 'mkdir');
+			}
+
+			fs.mkdirSync(current, mode);
+			first ??= current;
+			emitChange('rename', current);
+			lastStats = fs.statSync(current);
+		}
+	}
+
+	return first;
 }
 mkdirSync satisfies typeof fs.mkdirSync;
 
@@ -518,7 +527,7 @@ export function linkSync(targetPath: fs.PathLike, linkPath: fs.PathLike): void {
 		throw ErrnoError.With('EACCES', dirname(linkPath), 'link');
 	}
 
-	const { fs, path } = resolveMount(targetPath);
+	const { fs, path, mountPoint } = resolveMount(targetPath);
 	const link = resolveMount(linkPath);
 	if (fs != link.fs) {
 		throw ErrnoError.With('EXDEV', linkPath, 'link');
@@ -529,7 +538,7 @@ export function linkSync(targetPath: fs.PathLike, linkPath: fs.PathLike): void {
 		}
 		return fs.linkSync(path, linkPath);
 	} catch (e) {
-		throw fixError(e as ErrnoError, { [path]: targetPath, [link.path]: linkPath });
+		throw fixError(e as ErrnoError, mountPoint, path, link.path);
 	}
 }
 linkSync satisfies typeof fs.linkSync;
